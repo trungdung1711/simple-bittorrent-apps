@@ -226,7 +226,7 @@ def started_announce(client_peer):
     :param client_peer: the Peer object represent a peer
     :return: (interval, peers)
     """
-    client_peer.set_started_announce()
+    client_peer.set_started_event()
     response = requests.get(get_announce(client_peer.torrent), params=client_peer.get_params())
     if response.status_code == 200:
         interval = response.json()['interval']
@@ -243,7 +243,7 @@ def stop_announce(client_peer):
     :return: None
     :exception Exception: Failed to stopped announce to tracker.
     """
-    client_peer.set_stopped_announce()
+    client_peer.set_stopped_event()
     response = requests.get(get_announce(client_peer.torrent), params=client_peer.get_params())
     if response.status_code != 200:
         raise Exception("Failed to stopped announce to tracker.")
@@ -263,61 +263,6 @@ def stop_announce(client_peer):
 
 def is_download_completed(peer):
     return peer.left == 0
-
-
-class Peer:
-    def __init__(self, torrent, file, ip, port):
-        self.torrent = torrent
-        self.file = file
-        self.info_hash = get_info_hash(torrent)    # The hash of the torrent's "info" part (file's metadata)
-        self.peer_id = generate_peer_id()       # A unique ID identifying this peer (can be generated randomly)
-        self.peer_ip = ip                       # The ip address on the peer's machine
-        self.peer_port = port                   # The port on which the peer is listening for connections
-        self.uploaded = 0                       # The amount of data uploaded (can be set to 0 for initial announce)
-        self.downloaded = 0                     # The amount of data downloaded (can be set to 0 for initial announce)
-        self.left = 0                           # The amount of data left to download (0 for a seeder since it's already finished)
-        self.event = 'started'                  # Event type; 'started' means the seeder has started sharing the file
-
-
-    def get_params(self):
-        params = {
-            'info_hash': self.info_hash,
-            'peer_id': self.peer_id,
-            'peer_ip': self.peer_ip,
-            'peer_port': self.peer_port,
-            'uploaded': self.uploaded,
-            'downloaded': self.downloaded,
-            'left': self.left,
-            'event': self.event
-        }
-        return params
-
-
-    def init_seeder(self):
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left = 0
-        self.event = 'started'
-
-
-    def init_leecher(self):
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left = get_piece_number(self.torrent)
-        self.event = 'started'
-
-
-    def set_started_announce(self):
-        self.event = 'started'
-
-
-    def set_stopped_announce(self):
-        self.event = 'stopped'
-
-
-class SBC:
-    APP_NAME= 'Simple Bittorrent CLI'
-    VERSION = '1.0.0'
 
 
 def progress_bar(left, total_pieces, bar_length=40):
@@ -340,3 +285,69 @@ def progress_display(peer):
         time.sleep(0.1)
         # Display the progress bar
         progress_bar(peer.left, get_piece_number(peer.torrent))
+
+
+class Peer:
+    def __init__(self, torrent, file, ip, port):
+        self.torrent = torrent
+        self.file = file
+        self.info_hash = get_info_hash(torrent)
+        self.peer_id = generate_peer_id()
+        self.peer_ip = ip
+        self.peer_port = port
+        self.uploaded = 0
+        self.downloaded = 0
+        self.left = 0
+        self.event = EVENT_LIST[0]
+
+
+    def get_params(self):
+        params = {
+            'info_hash': self.info_hash,
+            'peer_id': self.peer_id,
+            'peer_ip': self.peer_ip,
+            'peer_port': self.peer_port,
+            'uploaded': self.uploaded,
+            'downloaded': self.downloaded,
+            'left': self.left,
+            'event': self.event
+        }
+        return params
+
+
+    def init_seeder(self):
+        self.uploaded = 0
+        self.downloaded = 0
+        self.left = 0
+        self.event = EVENT_LIST[0]
+
+
+    def init_leecher(self):
+        self.uploaded = 0
+        self.downloaded = 0
+        self.left = get_piece_number(self.torrent)
+        self.event = EVENT_LIST[0]
+
+
+    def set_started_event(self):
+        self.event = EVENT_LIST[0]
+
+
+    def set_stopped_event(self):
+        self.event = EVENT_LIST[1]
+
+
+    def set_re_announce_event(self):
+        self.event = EVENT_LIST[2]
+
+
+class SBC:
+    APP_NAME= 'Simple Bittorrent CLI'
+    VERSION = '1.0.0'
+
+
+EVENT_LIST = [
+    'STARTED',      # 0
+    'STOPPED',      # 1
+    'RE_ANNOUNCE'   # 2
+]
