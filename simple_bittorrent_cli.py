@@ -1,15 +1,10 @@
-import socket
 import threading
-import time
 import click
 import pprint
-from constants import SBC
-from threading import Thread
-from client_util import create_torrent, get_torrent_dic, Peer, first_announce, get_piece_number, \
-    accept_connections_from_peers, create_file, get_file_length, create_connections_to_server_peers, \
-    is_download_completed
-from io_util import progress_display
-
+from simple_peer.talker import talker
+from simple_peer.listener import listener
+from simple_peer.util import create_torrent, create_file, get_torrent_dic, get_file_length, get_piece_number, \
+    started_announce, is_download_completed, Peer, SBC, progress_display, stop_announce
 
 
 # Create a group of commands
@@ -26,10 +21,11 @@ def cli():
 @click.option('-d', '--destination', required=True, type=str, help="Destination directory")
 def torrent(file, ip, port, piece_length, destination):
     try:
-        click.echo(f"Creating torrent from file {file}, saving torrent to {destination}")
         create_torrent(file, ip, port, piece_length, destination)
+        click.echo(f'Creating torrent from file {file}')
+        click.echo(f'Saving torrent to {destination}')
     except Exception as e:
-        print(SBC.APP_NAME + ': ' + str(e))
+        click.echo(SBC.APP_NAME + ': ' + str(e))
 
 
 @cli.command()
@@ -40,7 +36,7 @@ def meta(torrent):
         torrent_dic['info']['pieces'] = '***'
         pprint.pprint(torrent_dic)
     except Exception as e:
-        print(SBC.APP_NAME + ': ' + str(e))
+        click.echo(SBC.APP_NAME + ': ' + str(e))
 
 
 @cli.command()
@@ -50,49 +46,48 @@ def meta(torrent):
 @click.option('-p', '--port', required=True, type=int, help="Port of the peer")
 def join(torrent, file, ip, port):
     try:
-        # The dictionary for tracking piece number
-        peer_pieces_tracking = {}
+        # todo: protect the shared objects between client threads
+        # todo: and the server threads
+        peer = Peer(torrent, file, ip, port)
+        # peer_pieces_tracking = {}
+        peer_lock = threading.Lock()
         peer_pieces_tracking_lock = threading.Lock()
 
-        peer = Peer(torrent, file, ip, port)
-        peer_lock = threading.Lock()
-
-        # interval time to periodically announce
-        # peers as list of dictionary of peer
-
-        piece_number = get_piece_number(torrent)
         is_seeder = input('Are you a seeder (yes/no): ')
         if is_seeder == 'yes':
-            # todo: announce
+            # todo: announce the seeder to the tracker
             peer.init_seeder()
-            interval, peers = first_announce(peer)
-            # print(interval)
-            # pprint.pprint(peers)
-            peer_pieces_tracking = {i : 'AVAILABLE' for i in range(piece_number)}
+            interval, peers = started_announce(peer)
+            pprint.pprint(peers)
+            peer_pieces_tracking = {i : 'AVAILABLE' for i in range(get_piece_number(peer.torrent))}
             # todo: update to the tracker periodically
         else:
-            # todo: announce
-            peer.init_leecher()
-            interval, peers = first_announce(peer)
-            # print(interval)
-            # pprint.pprint(peers)
-            # todo: create the file first
-            peer_pieces_tracking = {i : 'UNAVAILABLE' for i in range(piece_number)}
-            create_file(peer.file, get_file_length(peer.torrent))
+            # todo: announce the leecher to the tracker
             # todo: connect to other peer to download
-            create_connections_to_server_peers(peer, peers, peer_pieces_tracking, peer_lock, peer_pieces_tracking_lock)
+            # todo: create the file to save
             # todo: update to the tracker periodically
+            peer.init_leecher()
 
-        # todo: accept the connections from other peers, both for the
-        # todo: seeder and the leecher
-        accept_connections_from_peers_thread = threading.Thread(target=accept_connections_from_peers, args=(
-        peer.peer_ip, peer.peer_port, peer, peer_pieces_tracking, peer_lock))
+            interval, peers = started_announce(peer)
+            pprint.pprint(peers)
+            peer_pieces_tracking = {i : 'UNAVAILABLE' for i in range(get_piece_number(peer.torrent))}
+            create_file(peer.file, get_file_length(peer.torrent))
+            talker_thread = threading.Thread(target=talker, args=(peer, peers, peer_pieces_tracking, peer_lock, peer_pieces_tracking_lock))
+            talker_thread.daemon = True
+            talker_thread.start()
+
+        # todo: create the central server thread
+        listener_thread = threading.Thread(target=listener, args=(
+        peer, peer_pieces_tracking, peer_lock))
         # todo: ensure that the main thread will terminate the accept_connections_from_peers_thread
-        accept_connections_from_peers_thread.daemon = True
-        accept_connections_from_peers_thread.start()
+        listener_thread.daemon = True
+        listener_thread.start()
 
         progress_display(peer)
 
+        # todo: when finishing downloading, all the client peer thread
+        # todo: should finish and close with the server handle peer thread
+        # todo: as follow the DONE message in the protocol
         while True:
             if is_download_completed(peer):
                 print('')
@@ -101,15 +96,14 @@ def join(torrent, file, ip, port):
                 if is_continue_to_seed == 'no':
                     # todo: announce to the tracker to remove the peer
                     # todo: stop the accept_connections_from_peers
-                    print('Seeding')
-
+                    stop_announce(peer)
+                    return
                 else:
                     # todo: still let the accept_connections_from_peers to run
-                    print('Seeding')
-
-        accept_connections_from_peers_thread.join()
+                    print('Seeding...')
     except Exception as e:
         print(SBC.APP_NAME + ': ' + str(e))
+
 
 if __name__ == '__main__':
     cli()

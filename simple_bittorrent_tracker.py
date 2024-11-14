@@ -1,12 +1,8 @@
-from tracker_util import Peer, TRACKER
+from simple_tracker.tracker_util import Peer, TRACKER
 from flask import Flask, request, jsonify
 import threading
 
 app = Flask(__name__)
-
-@app.route('/')
-def hello_world():
-    return 'Hello, World!'
 
 
 #dictionary
@@ -15,6 +11,11 @@ def hello_world():
 #   'info_hash': [list of peers (object)]
 #}
 peers_db = {}
+
+
+@app.route('/', methods=['GET'])
+def test():
+    return 'Hello', 200
 
 
 @app.route('/announce', methods=['GET'])
@@ -40,6 +41,11 @@ def announce():
     if peer.event == 'stopped':
         # Handle peer stopping (remove from peers list)
         peers_db[peer.info_hash] = [peer_mem for peer_mem in peers_db[peer.info_hash] if peer_mem.peer_id != peer.peer_id]
+        if not peers_db[peer.info_hash]:
+            # list of peers is empty,
+            # remove the key from the in-memory database
+            del peers_db[peer.info_hash]
+
         app.logger.info(f'Peer {peer.peer_id} stopped')
         return "Peer stopped", 200
 
@@ -78,16 +84,10 @@ def announce():
     return jsonify(response), 200
 
 
-# @app.route('/api/v1/repo', methods=['POST'])
-# def repo():
-#     file = request.files['torrent']
-#     file.save(f'./repo/{file.filename}')
-#     return TRACKER.OK, 200
-
-
 # Start the Flask server with threaded support
 def run_server():
     app.run(host='0.0.0.0', port=80, threaded=True)
+
 
 # Run the Flask server in a new thread
 if __name__ == '__main__':
