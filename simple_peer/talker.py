@@ -7,40 +7,57 @@ from simple_peer.util import get_piece_number, get_piece_length, verify_piece, w
     recv_exact_bytes, get_file_length
 
 
-def talker(client_peer, server_peers, peer_pieces_tracking, client_peer_lock, peer_pieces_tracking_lock):
+def talker(client_peer, server_peers, server_peers_lock, peer_pieces_tracking, client_peer_lock, peer_pieces_tracking_lock):
     """
     Generate multiple threads to concurrently request pieces
     from the server peer.
     :param client_peer: object representing the client peer
     :param server_peers: list of dictionary of server peers
+    :param server_peers_lock: the lock for changing server_peers
     :param peer_pieces_tracking: dictionary of pieces tracking of the client peer
     :param client_peer_lock: the lock for changing the client_peer
     :param peer_pieces_tracking_lock: the lock for changing the peer_pieces_tracking
     :return: None
     """
     # To keep track of all threads
-    # print('')
-    # print('talker begins')
-    requester_threads = []
+    print('')
+    print('talker begins')
+    # requester_threads = []
+    connected_server_peers = set([])
+    connected_server_peers_lock = threading.Lock()
 
-    for server_peer in server_peers:
-        if server_peer['peer_id'] != client_peer.peer_id:
-            # Create a new requester thread
-            # print(f'Start requester to {server_peer["peer_id"]}')
-            requester_thread = threading.Thread(target=requester, args=(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracking_lock, client_peer_lock))
-            requester_thread.daemon = True
-            requester_threads.append(requester_thread)
-            requester_thread.start()
+    while not is_download_completed(client_peer):
+        for server_peer in server_peers:
+            if (server_peer['peer_id'] != client_peer.peer_id and
+                server_peer['peer_id'] not in connected_server_peers):
+                # Create a new requester thread
+                # print(f'Start requester to {server_peer["peer_id"]}')
+                # creating thread = connected
+                with connected_server_peers_lock:
+                    connected_server_peers.add(server_peer['peer_id'])
 
-    # Wait for all requester threads to finish before exiting talker
-    for requester_thread in requester_threads:
-        requester_thread.join()
-    # print('')
-    # print('talker done')
+                requester_thread = threading.Thread(target=requester, args=(client_peer,
+                                                                            server_peer,
+                                                                            peer_pieces_tracking,
+                                                                            peer_pieces_tracking_lock,
+                                                                            client_peer_lock,
+                                                                            connected_server_peers,
+                                                                            connected_server_peers_lock,
+                                                                            server_peers,
+                                                                            server_peers_lock))
+                requester_thread.daemon = True
+                # requester_threads.append(requester_thread)
+                requester_thread.start()
+
+        # Wait for all requester threads to finish before exiting talker
+        # for requester_thread in requester_threads:
+        #     requester_thread.join()
+    print('')
+    print('talker done')
 
 
 def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracking_lock,
-              client_peer_lock):
+              client_peer_lock, connected_server_peers, connected_server_peers_lock, server_peers, server_peers_lock):
     """
     The function run by the thread to create the connection to the server peer.
     Call by create_connections_to_server_peers
@@ -49,10 +66,18 @@ def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracki
     :param peer_pieces_tracking: dictionary of pieces tracking of the client peer
     :param peer_pieces_tracking_lock: the lock for changing the peer_pieces_tracking
     :param client_peer_lock: the lock for changing the client_peer
+    :param connected_server_peers_lock: set of connected server peers
+    :param connected_server_peers: the lock for changing the connected_server_peers
+    :param server_peers: list of dictionary represents the server peers
+    :param server_peers_lock: lock for changing the server_peers
     :return: None
     """
     # todo: thread to connect to the server peer
-    # print('requester begins')
+    print('')
+    print('requester begins')
+    with connected_server_peers_lock:
+        connected_server_peers.add(server_peer['peer_id'])
+
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client_socket.connect((server_peer['peer_ip'], server_peer['peer_port']))
@@ -61,11 +86,23 @@ def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracki
                                    peer_pieces_tracking_lock, server_peer)
 
         requester_done(client_socket)
-        # print('requester done')
+
+        with connected_server_peers_lock:
+            connected_server_peers.remove(server_peer['peer_id'])
+        print('requester done')
     except Exception as e:
         # print('')
+        with connected_server_peers_lock:
+            connected_server_peers.remove(server_peer['peer_id'])
+
+        with server_peers_lock:
+            # remove the server_peer out of the
+            # can-connect server_peer
+            server_peers.remove(server_peer)
+
         print(SBC.APP_NAME +': ' + str(e))
-        # print('requester done')
+        print('')
+        print('requester done')
         return
     finally:
         client_socket.close()
@@ -76,14 +113,6 @@ def update_peer_pieces_tracking_available(peer_pieces_tracking, peer_pieces_trac
     peer_pieces_tracking_lock.acquire()
     peer_pieces_tracking[piece_index] = 'AVAILABLE'
     peer_pieces_tracking_lock.release()
-
-
-def update_peer_available(peer, peer_lock):
-    peer_lock.acquire()
-    peer.downloaded = peer.downloaded + 1
-    peer.left = peer.left - 1
-    peer.event = None
-    peer_lock.release()
 
 
 def update_peer_pieces_tracking_downloading(peer_pieces_tracking, peer_pieces_tracking_lock, piece_index):
@@ -156,7 +185,8 @@ def requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_p
         # todo: write piece_data to the file
         write_piece(piece_data, i, client_peer.torrent, client_peer.file)
         # todo: update the piece_pieces_tracking
-        update_peer_available(client_peer, client_peer_lock)
+        # update_peer_available(client_peer, client_peer_lock)
+        client_peer.update_peer_available()
         update_peer_pieces_tracking_available(peer_pieces_tracking, peer_pieces_tracking_lock, i)
         # print(f'Piece {i} is valid')
     else:

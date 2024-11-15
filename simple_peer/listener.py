@@ -27,8 +27,7 @@ def listener(server_peer, peer_pieces_tracking, server_peer_lock):
 
     while True:
         server_client_socket, addr = server_socket.accept()
-        handler_thread = threading.Thread(target=handler, args=(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock))
-        handler_thread.daemon = True
+        handler_thread = threading.Thread(target=handler, args=(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock), daemon=True)
         handler_thread.start()
 
     # print('listener ends')
@@ -91,11 +90,11 @@ def handler_request_type(request):
         return 'INTEREST'
 
 
-def update_peer_uploaded(server_peer, server_peer_lock):
-    server_peer_lock.acquire()
-    server_peer.uploaded = server_peer.uploaded + 1
-    server_peer.event = None
-    server_peer_lock.release()
+# def update_peer_uploaded(server_peer, server_peer_lock):
+#     server_peer_lock.acquire()
+#     server_peer.uploaded = server_peer.uploaded + 1
+#     server_peer.event = None
+#     server_peer_lock.release()
 
 
 def handler_done(server_client_socket):
@@ -113,7 +112,8 @@ def handler_interest(server_peer, server_client_socket, interest_request, server
         f.seek(read_index)
         piece_data = f.read(get_piece_length(server_peer.torrent))
         server_client_socket.send(piece_data)
-    update_peer_uploaded(server_peer, server_peer_lock)
+    # update_peer_uploaded(server_peer, server_peer_lock)
+    server_peer.update_peer_uploaded()
 
 
 def handler_having(server_client_socket, peer_pieces_tracking):
