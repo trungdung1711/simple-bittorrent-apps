@@ -1,3 +1,4 @@
+from simple_tracker.cleaner import cleaner
 from simple_tracker.util import SimpleTracker, announce_parse_request, announce_handler_lack_info, \
     announce_handler_stopped_event, announce_handler_started_event, announce_handler_re_announce_event, \
     announce_handler_swarm_response
@@ -46,6 +47,8 @@ def announce():
 # Start the Flask server with threaded support
 def run():
     simple_bittorrent_tracker.run(host='0.0.0.0', port=80, threaded=True)
+    cleaner_thread = threading.Thread(target=cleaner, args=(peers_db, peers_db_lock), daemon=True)
+    cleaner_thread.start()
 
 
 # Run the Flask server in a new thread

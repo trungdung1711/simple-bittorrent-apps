@@ -4,6 +4,7 @@ import os
 import random
 import string
 import sys
+import threading
 import time
 import bencodepy
 import requests
@@ -218,6 +219,24 @@ def recv_exact_bytes(socket, expected_bytes):
     return data
 
 
+def leecher_init(torrent, file, ip, port):
+    peer = Peer(torrent, file, ip, port)
+    peer_pieces_tracking = {i: 'UNAVAILABLE' for i in range(get_piece_number(peer.torrent))}
+    peer_lock = threading.Lock()
+    peer_pieces_tracking_lock = threading.Lock()
+    peer.init_leecher()
+    return peer, peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock
+
+
+def seeder_init(torrent, file, ip, port):
+    peer = Peer(torrent, file, ip, port)
+    peer_pieces_tracking = {i: 'AVAILABLE' for i in range(get_piece_number(peer.torrent))}
+    peer_lock = threading.Lock()
+    peer_pieces_tracking_lock = threading.Lock()
+    peer.init_seeder()
+    return peer, peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock
+
+
 def started_announce(client_peer):
     """
     In the join command, first announce the tracker to tell
@@ -282,6 +301,7 @@ def progress_bar(left, total_pieces, bar_length=40):
 def progress_display(peer):
     # skip by seeder because left = 0
     while peer.left > 0:
+        print(peer.left)
         time.sleep(0.1)
         # Display the progress bar
         progress_bar(peer.left, get_piece_number(peer.torrent))
@@ -299,6 +319,7 @@ class Peer:
         self.downloaded = 0
         self.left = 0
         self.event = EVENT_LIST[0]
+        self.lock = threading.Lock()
 
 
     def get_params(self):
@@ -316,29 +337,45 @@ class Peer:
 
 
     def init_seeder(self):
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left = 0
-        self.event = EVENT_LIST[0]
+        with self.lock:
+            self.uploaded = 0
+            self.downloaded = 0
+            self.left = 0
+            self.event = EVENT_LIST[0]
 
 
     def init_leecher(self):
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left = get_piece_number(self.torrent)
-        self.event = EVENT_LIST[0]
+        with self.lock:
+            self.uploaded = 0
+            self.downloaded = 0
+            self.left = get_piece_number(self.torrent)
+            self.event = EVENT_LIST[0]
 
 
     def set_started_event(self):
-        self.event = EVENT_LIST[0]
+        with self.lock:
+            self.event = EVENT_LIST[0]
 
 
     def set_stopped_event(self):
-        self.event = EVENT_LIST[1]
+        with self.lock:
+            self.event = EVENT_LIST[1]
 
 
     def set_re_announce_event(self):
-        self.event = EVENT_LIST[2]
+        with self.lock:
+            self.event = EVENT_LIST[2]
+
+
+    def update_peer_available(self):
+        with self.lock:
+            self.downloaded = self.downloaded + 1
+            self.left = self.left - 1
+
+
+    def update_peer_uploaded(self):
+        with self.lock:
+            self.uploaded = self.uploaded + 1
 
 
 class SBC:

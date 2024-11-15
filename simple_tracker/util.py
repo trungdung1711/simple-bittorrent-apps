@@ -1,18 +1,18 @@
 import time
-from flask import Flask, request, jsonify
+from flask import request
 
 
-def to_peer(peer):
-    new_peer = Peer()
-    new_peer.info_hash = peer['info_hash']
-    new_peer.peer_id = peer['peer_id']
-    new_peer.peer_ip = peer['peer_ip']
-    new_peer.peer_port = peer['peer_port']
-    new_peer.uploaded = peer['uploaded']
-    new_peer.downloaded = peer['downloaded']
-    new_peer.left = peer['left']
-    new_peer.event = peer['event']
-    return new_peer
+# def to_peer(peer):
+#     new_peer = Peer()
+#     new_peer.info_hash = peer['info_hash']
+#     new_peer.peer_id = peer['peer_id']
+#     new_peer.peer_ip = peer['peer_ip']
+#     new_peer.peer_port = peer['peer_port']
+#     new_peer.uploaded = peer['uploaded']
+#     new_peer.downloaded = peer['downloaded']
+#     new_peer.left = peer['left']
+#     new_peer.event = peer['event']
+#     return new_peer
 
 
 def announce_parse_request():
@@ -56,12 +56,26 @@ def announce_handler_started_event(peers_db, peers_db_lock, client_peer):
 
 def announce_handler_re_announce_event(peers_db, peers_db_lock, client_peer):
     with peers_db_lock:
+        # case when cleaner cleans the only peer in the
+        # swarm, delete the info_hash entry in the database
+        if client_peer.info_hash not in peers_db:
+            with peers_db_lock:
+                peers_db[client_peer.info_hash] = []
+                peers_db[client_peer.info_hash].append(client_peer)
+                return
         for peer_mem in peers_db[client_peer.info_hash]:
             if peer_mem.peer_id == client_peer.peer_id:
                 # update the peer information, along with the
                 # last_announce_time, return a refreshed
                 # list of peer
                 peer_mem.update(client_peer)
+                return
+        # in the case, tracker don't find any peer_mem
+        # in the swarm, tracker's cleaner deleted it out
+        # of the peer, but there is still the swarm's entry
+        with peers_db_lock:
+            # re-append the client_peer
+            peers_db[client_peer.info_hash].append(client_peer)
 
 
 def announce_handler_swarm_response(client_peer, peers_db, peers_db_lock):
@@ -123,6 +137,7 @@ class SimpleTracker:
     # for every 10 seconds
     # running the clean-up
     CHECKING_TIME=10
+    THRESHOLD=1*60+30
     EVENT_LIST = ['STARTED',        # 0
                   'STOPPED',        # 1
                   'RE_ANNOUNCE']    # 2
