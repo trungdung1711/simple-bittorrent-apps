@@ -4,8 +4,11 @@ from simple_tracker.util import SimpleTracker, announce_parse_request, announce_
     announce_handler_swarm_response
 from flask import Flask, jsonify
 import threading
+import logging
 
 simple_bittorrent_tracker = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("announce")
 
 
 # DICTIONARY
@@ -47,11 +50,11 @@ def announce():
 # Start the Flask server with threaded support
 def run():
     simple_bittorrent_tracker.run(host='0.0.0.0', port=80, threaded=True)
-    cleaner_thread = threading.Thread(target=cleaner, args=(peers_db, peers_db_lock), daemon=True)
-    cleaner_thread.start()
 
 
 # Run the Flask server in a new thread
 if __name__ == '__main__':
     server_thread = threading.Thread(target=run)
     server_thread.start()
+    cleaner_thread = threading.Thread(target=cleaner, args=(peers_db, peers_db_lock), daemon=True)
+    cleaner_thread.start()

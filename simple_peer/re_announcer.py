@@ -1,7 +1,7 @@
 import time
 import click
 import requests
-from simple_peer.util import get_announce, SBC
+from simple_peer.util import get_announce, SimpleClient
 
 
 def re_announce_announce(client_peer):
@@ -35,8 +35,7 @@ def re_announcer(interval, client_peer, peers, peers_lock):
             interval = new_interval
 
             with peers_lock:
-                # update new list of peers
                 peers.clear()
                 peers.extend(new_peers)
     except Exception as e:
-        click.echo(SBC.APP_NAME + ': ' + str(e))
+        click.echo(SimpleClient.APP_NAME + '-re_announcer: ' + str(e))
