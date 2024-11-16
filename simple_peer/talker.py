@@ -3,7 +3,9 @@ import socket
 import struct
 import threading
 import time
-from simple_peer.util import get_piece_number, get_piece_length, verify_piece, write_piece, is_download_completed, SBC, \
+
+from simple_peer.config import DEBUG
+from simple_peer.util import get_piece_number, get_piece_length, verify_piece, write_piece, is_download_completed, SimpleClient, \
     recv_exact_bytes, get_file_length
 
 
@@ -19,24 +21,19 @@ def talker(client_peer, server_peers, server_peers_lock, peer_pieces_tracking, c
     :param peer_pieces_tracking_lock: the lock for changing the peer_pieces_tracking
     :return: None
     """
-    # To keep track of all threads
-    print('')
-    print('talker begins')
-    # requester_threads = []
     connected_server_peers = set([])
     connected_server_peers_lock = threading.Lock()
 
     while not is_download_completed(client_peer):
-        for server_peer in server_peers:
-            if (server_peer['peer_id'] != client_peer.peer_id and
-                server_peer['peer_id'] not in connected_server_peers):
-                # Create a new requester thread
-                # print(f'Start requester to {server_peer["peer_id"]}')
-                # creating thread = connected
-                with connected_server_peers_lock:
-                    connected_server_peers.add(server_peer['peer_id'])
+        with server_peers_lock:
+            with connected_server_peers_lock:
+                for server_peer in server_peers:
+                    if (server_peer['peer_id'] != client_peer.peer_id and
+                        server_peer['peer_id'] not in connected_server_peers):
 
-                requester_thread = threading.Thread(target=requester, args=(client_peer,
+                        connected_server_peers.add(server_peer['peer_id'])
+
+                        requester_thread = threading.Thread(target=requester, args=(client_peer,
                                                                             server_peer,
                                                                             peer_pieces_tracking,
                                                                             peer_pieces_tracking_lock,
@@ -44,16 +41,11 @@ def talker(client_peer, server_peers, server_peers_lock, peer_pieces_tracking, c
                                                                             connected_server_peers,
                                                                             connected_server_peers_lock,
                                                                             server_peers,
-                                                                            server_peers_lock))
-                requester_thread.daemon = True
-                # requester_threads.append(requester_thread)
-                requester_thread.start()
+                                                                            server_peers_lock),
+                                                            daemon=True)
 
-        # Wait for all requester threads to finish before exiting talker
-        # for requester_thread in requester_threads:
-        #     requester_thread.join()
-    print('')
-    print('talker done')
+                        requester_thread.start()
+        time.sleep(SimpleClient.TALKER_CHECKING)
 
 
 def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracking_lock,
@@ -73,8 +65,6 @@ def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracki
     :return: None
     """
     # todo: thread to connect to the server peer
-    print('')
-    print('requester begins')
     with connected_server_peers_lock:
         connected_server_peers.add(server_peer['peer_id'])
 
@@ -89,21 +79,19 @@ def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracki
 
         with connected_server_peers_lock:
             connected_server_peers.remove(server_peer['peer_id'])
-        print('requester done')
     except Exception as e:
-        # print('')
         with connected_server_peers_lock:
-            connected_server_peers.remove(server_peer['peer_id'])
+            if server_peer['peer_id'] in connected_server_peers:
+                connected_server_peers.remove(server_peer['peer_id'])
 
         with server_peers_lock:
-            # remove the server_peer out of the
-            # can-connect server_peer
-            server_peers.remove(server_peer)
+            for server_peer_mem in server_peers:
+                if server_peer['peer_id'] == server_peer_mem['peer_id']:
+                    server_peers.remove(server_peer_mem)
 
-        print(SBC.APP_NAME +': ' + str(e))
-        print('')
-        print('requester done')
-        return
+
+        if DEBUG:
+            print(SimpleClient.APP_NAME + '-requester: ' + str(e))
     finally:
         client_socket.close()
 
@@ -148,7 +136,8 @@ def requester_having_accumulator(peer_client_socket):
         return parsed_json  # Return the parsed JSON object if successful
     except (UnicodeDecodeError, json.JSONDecodeError):
         # If decoding or JSON parsing fails, continue to receive data
-        print("Error parsing JSON, waiting for more data...")
+        if DEBUG:
+            print("Error parsing JSON, waiting for more data...")
 
 
 def requester_having(client_socket):
@@ -169,47 +158,51 @@ def requester_having(client_socket):
     return server_peer_pieces_tracking
 
 
-def requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock, i):
-    interest_message = f'INTEREST {i}\n'
-    peer_client_socket.send(interest_message.encode('utf-8'))
-    # print(f'Sending INTEREST request {i}')
-    if i == get_piece_number(client_peer.torrent) - 1:
-        # if it is the last piece index
-        # calculate the last piece length
-        last_piece_length = get_file_length(client_peer.torrent) - (
-                    (get_piece_number(client_peer.torrent) - 1) * get_piece_length(client_peer.torrent))
-        piece_data = recv_exact_bytes(peer_client_socket, last_piece_length)
-    else:
-        piece_data = recv_exact_bytes(peer_client_socket, get_piece_length(client_peer.torrent))
-    if verify_piece(piece_data, i, client_peer.torrent):
-        # todo: write piece_data to the file
-        write_piece(piece_data, i, client_peer.torrent, client_peer.file)
-        # todo: update the piece_pieces_tracking
-        # update_peer_available(client_peer, client_peer_lock)
-        client_peer.update_peer_available()
-        update_peer_pieces_tracking_available(peer_pieces_tracking, peer_pieces_tracking_lock, i)
-        # print(f'Piece {i} is valid')
-    else:
-        # todo: mark the piece as UNAVAILABLE and skip it
-        # print(f'Piece {i} is wrong')
+def requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock, i, server_peer):
+    try:
+        # set DOWNLOADING on this piece index
+        update_peer_pieces_tracking_downloading(peer_pieces_tracking, peer_pieces_tracking_lock, i)
+        interest_message = f'INTEREST {i}\n'
+        peer_client_socket.send(interest_message.encode('utf-8'))
+        # print(f'Sending INTEREST request {i}')
+        if i == get_piece_number(client_peer.torrent) - 1:
+            # if it is the last piece index
+            # calculate the last piece length
+            last_piece_length = get_file_length(client_peer.torrent) - (
+                        (get_piece_number(client_peer.torrent) - 1) * get_piece_length(client_peer.torrent))
+            piece_data = recv_exact_bytes(peer_client_socket, last_piece_length)
+        else:
+            piece_data = recv_exact_bytes(peer_client_socket, get_piece_length(client_peer.torrent))
+
+        if verify_piece(piece_data, i, client_peer.torrent):
+            # todo: write piece_data to the file
+            write_piece(piece_data, i, client_peer.torrent, client_peer.file)
+            # todo: update the piece_pieces_tracking
+            client_peer.update_peer_available()
+            update_peer_pieces_tracking_available(peer_pieces_tracking, peer_pieces_tracking_lock, i)
+            server_ip, server_port = peer_client_socket.getpeername()
+            if DEBUG:
+                print(f'Downloaded piece [{i}] from [{server_ip}][{server_port}]')
+        else:
+            if DEBUG:
+                print(f'Piece [{i}] is wrong')
+            update_peer_pieces_tracking_unavailable(peer_pieces_tracking, peer_pieces_tracking_lock, i)
+    except Exception as e:
         update_peer_pieces_tracking_unavailable(peer_pieces_tracking, peer_pieces_tracking_lock, i)
+        raise
 
 
 def requester_interests(client_peer, peer_client_socket, peer_pieces_tracking, server_peer_pieces_tracking, client_peer_lock, peer_pieces_tracking_lock, server_peer):
-    for i in range(get_piece_number(client_peer.torrent)):
-        if server_peer_pieces_tracking[i] == 'AVAILABLE' and peer_pieces_tracking[i] == 'UNAVAILABLE':
-            update_peer_pieces_tracking_downloading(peer_pieces_tracking, peer_pieces_tracking_lock, i)
-            requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock, i)
-        #else:
-            # print('Skip INTEREST request')
-            # print(server_peer_pieces_tracking[i])
-            # print(peer_pieces_tracking[i])
+        for i in range(get_piece_number(client_peer.torrent)):
+            if server_peer_pieces_tracking[i] == 'AVAILABLE' and peer_pieces_tracking[i] == 'UNAVAILABLE':
+                update_peer_pieces_tracking_downloading(peer_pieces_tracking, peer_pieces_tracking_lock, i)
+                requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_pieces_tracking, peer_pieces_tracking_lock, i, server_peer)
 
 
 def requester_having_interests(client_peer, peer_client_socket, peer_pieces_tracking, client_peer_lock, peer_pieces_tracking_lock, server_peer):
     while not is_download_completed(client_peer):
 
-        time.sleep(5)
+        time.sleep(SimpleClient.HAVING_REQUEST_TIME)
 
         server_peer_pieces_tracking = requester_having(peer_client_socket)
 

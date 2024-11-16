@@ -3,7 +3,8 @@ import socket
 import struct
 import threading
 
-from simple_peer.util import get_interest_piece_index, get_piece_length, SBC
+from simple_peer.config import DEBUG
+from simple_peer.util import get_interest_piece_index, get_piece_length, SimpleClient
 
 
 def listener(server_peer, peer_pieces_tracking, server_peer_lock):
@@ -16,21 +17,15 @@ def listener(server_peer, peer_pieces_tracking, server_peer_lock):
     :return: None
     """
     # todo: a central thread that accepts the connection from client peers
-    # print('listener begins')
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
     server_socket.bind((server_peer.peer_ip, server_peer.peer_port))
 
-    # at most 10 peers will wait in the queue,
-    # until server_socket.accept() is called
     server_socket.listen(10)
 
     while True:
         server_client_socket, addr = server_socket.accept()
         handler_thread = threading.Thread(target=handler, args=(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock), daemon=True)
         handler_thread.start()
-
-    # print('listener ends')
 
 
 def handler(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock):
@@ -44,7 +39,6 @@ def handler(server_peer, server_client_socket, peer_pieces_tracking, server_peer
     :return: None
     """
     # todo: thread that instantly handle requests from a peer
-    # print('handler begins')
     try:
         buffer = ""
         while True:
@@ -60,22 +54,17 @@ def handler(server_peer, server_client_socket, peer_pieces_tracking, server_peer
                 # Split the buffer on the newline delimiter
                 request_message, buffer = buffer.split("\n", 1)
 
-                # print('CHECK ' + request_message)
-
                 request_type = handler_request_type(request_message)
                 if request_type == 'DONE':
                     handler_done(server_client_socket)
-                    # print('handler done')
                     return
                 elif request_type == 'HAVING':
                     handler_having(server_client_socket, peer_pieces_tracking)
                 elif request_type == 'INTEREST':
                     handler_interest(server_peer, server_client_socket, request_message, server_peer_lock)
     except Exception as e:
-        print('')
-        print(SBC.APP_NAME +': ' + str(e))
-        # print('handler done')
-        return
+        if DEBUG:
+            print(SimpleClient.APP_NAME + '-handler: ' + str(e))
     finally:
         server_client_socket.close()
 
@@ -90,13 +79,6 @@ def handler_request_type(request):
         return 'INTEREST'
 
 
-# def update_peer_uploaded(server_peer, server_peer_lock):
-#     server_peer_lock.acquire()
-#     server_peer.uploaded = server_peer.uploaded + 1
-#     server_peer.event = None
-#     server_peer_lock.release()
-
-
 def handler_done(server_client_socket):
     # todo: send back the acknowledgement and close the socket
     done_response = 'DONE_OK'
@@ -104,7 +86,7 @@ def handler_done(server_client_socket):
     server_client_socket.close()
 
 
-def handler_interest(server_peer, server_client_socket, interest_request, server_peer_lock):
+def handler_interest(server_peer, server_client_socket, interest_request, server_peer_lock, ):
     piece_index = get_interest_piece_index(interest_request)
     # todo: send the piece back to the peer client
     with open(server_peer.file, 'rb') as f:
@@ -112,7 +94,9 @@ def handler_interest(server_peer, server_client_socket, interest_request, server
         f.seek(read_index)
         piece_data = f.read(get_piece_length(server_peer.torrent))
         server_client_socket.send(piece_data)
-    # update_peer_uploaded(server_peer, server_peer_lock)
+        client_ip, client_port = server_client_socket.getpeername()
+        if DEBUG:
+            print(f'Uploaded piece [{piece_index}] to [{client_ip}][{client_port}]')
     server_peer.update_peer_uploaded()
 
 

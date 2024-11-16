@@ -2,19 +2,6 @@ import time
 from flask import request
 
 
-# def to_peer(peer):
-#     new_peer = Peer()
-#     new_peer.info_hash = peer['info_hash']
-#     new_peer.peer_id = peer['peer_id']
-#     new_peer.peer_ip = peer['peer_ip']
-#     new_peer.peer_port = peer['peer_port']
-#     new_peer.uploaded = peer['uploaded']
-#     new_peer.downloaded = peer['downloaded']
-#     new_peer.left = peer['left']
-#     new_peer.event = peer['event']
-#     return new_peer
-
-
 def announce_parse_request():
     """
     Parse the HTTP request from peers
@@ -46,11 +33,10 @@ def announce_handler_stopped_event(peers_db, peers_db_lock, client_peer):
 
 
 def announce_handler_started_event(peers_db, peers_db_lock, client_peer):
-    if client_peer.info_hash not in peers_db:
-        with peers_db_lock:
+    with peers_db_lock:
+        if client_peer.info_hash not in peers_db:
             # Create an empty list of Peer object
             peers_db[client_peer.info_hash] = []
-    with peers_db_lock:
         peers_db[client_peer.info_hash].append(client_peer)
 
 
@@ -73,9 +59,8 @@ def announce_handler_re_announce_event(peers_db, peers_db_lock, client_peer):
         # in the case, tracker don't find any peer_mem
         # in the swarm, tracker's cleaner deleted it out
         # of the peer, but there is still the swarm's entry
-        with peers_db_lock:
-            # re-append the client_peer
-            peers_db[client_peer.info_hash].append(client_peer)
+        # re-append the client_peer
+        peers_db[client_peer.info_hash].append(client_peer)
 
 
 def announce_handler_swarm_response(client_peer, peers_db, peers_db_lock):
@@ -132,6 +117,8 @@ class Peer:
 
 
 class SimpleTracker:
+    APP_NAME= 'Simple Bittorrent Tracker'
+    VERSION='1.0.0'
     # 1 minutes
     INTERVAL=1*60
     # for every 10 seconds

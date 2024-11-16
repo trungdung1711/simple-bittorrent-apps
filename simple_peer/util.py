@@ -8,6 +8,7 @@ import threading
 import time
 import bencodepy
 import requests
+from tqdm import tqdm
 
 
 def create_pieces_hash(file_path, piece_length):
@@ -34,9 +35,9 @@ def create_torrent(file_path, ip, port, piece_length, destination_directory):
 
     torrent_dict = {
         'announce': f'http://{ip}:{port}/announce',
-        'created by': SBC.APP_NAME,
+        'created by': SimpleClient.APP_NAME,
         'creation date': int(time.time()),
-        'version': SBC.VERSION,
+        'version': SimpleClient.VERSION,
         'info': info
     }
 
@@ -268,43 +269,57 @@ def stop_announce(client_peer):
         raise Exception("Failed to stopped announce to tracker.")
 
 
-# def periodically_announce(peer):
-#     """
-#     Running by a thread, each interval, this function will send
-#     an announcement to the tracker to update its information and get a
-#     new list of peer and updating the list of peer
-#     :param peer: the Peer object represent a peer
-#     :return: nothing
-#     """
-#     # todo: periodically announce to the tracker
-#     value = 20
-
-
 def is_download_completed(peer):
     return peer.left == 0
 
 
-def progress_bar(left, total_pieces, bar_length=40):
-    # Calculate the download progress
-    downloaded_pieces = total_pieces - left
-    progress = downloaded_pieces / total_pieces
+# def progress_bar(left, total_pieces, bar_length=40):
+#     # Calculate the download progress
+#     downloaded_pieces = total_pieces - left
+#     progress = downloaded_pieces / total_pieces
+#
+#     # Create the bar, percentage of bar
+#     block = int(round(bar_length * progress))
+#     bar = "#" * block + "-" * (bar_length - block)
+#
+#     # Display the bar with the percentage
+#     sys.stdout.write(f"\rDownloading: [{bar}] {progress * 100:.2f}%")
+#     sys.stdout.flush()
 
-    # Create the bar, percentage of bar
-    block = int(round(bar_length * progress))
-    bar = "#" * block + "-" * (bar_length - block)
 
-    # Display the bar with the percentage
-    sys.stdout.write(f"\rDownloading: [{bar}] {progress * 100:.2f}%")
-    sys.stdout.flush()
+# def progress_display(peer):
+#     # skip by seeder because left = 0
+#     while peer.left >= 0:
+#         # print(peer.left)
+#         time.sleep(0.1)
+#         # Display the progress bar
+#         progress_bar(peer.left, get_piece_number(peer.torrent))
+#         if peer.left == 0:
+#             return
 
 
-def progress_display(peer):
-    # skip by seeder because left = 0
-    while peer.left > 0:
-        print(peer.left)
-        time.sleep(0.1)
-        # Display the progress bar
-        progress_bar(peer.left, get_piece_number(peer.torrent))
+def init_progress_bar(client_peer):
+    total_size = get_file_length(client_peer.torrent)
+    piece_length = get_piece_length(client_peer.torrent)
+    with tqdm(total=total_size, unit='B', unit_scale=True, desc='Downloading') as progress_bar:
+        downloaded_bytes = 0  # Track downloaded bytes
+        while client_peer.left > 0:
+            # Calculate how many bytes have been downloaded since the last update
+            new_downloaded_bytes = min(client_peer.downloaded * piece_length, total_size)
+            bytes_downloaded_since_last_update = new_downloaded_bytes - downloaded_bytes
+
+            # Update the progress bar with the number of bytes downloaded since the last update
+            progress_bar.update(bytes_downloaded_since_last_update)
+
+            # Update downloaded_bytes to the current downloaded bytes
+            downloaded_bytes = new_downloaded_bytes
+
+            # Optional: to avoid too frequent updates, you can add a small sleep here
+            # time.sleep(0.1)
+
+        # After the download is complete, make sure the progress bar reaches 100%
+        if client_peer.left == 0:
+            progress_bar.update(total_size - downloaded_bytes)
 
 
 class Peer:
@@ -378,9 +393,11 @@ class Peer:
             self.uploaded = self.uploaded + 1
 
 
-class SBC:
-    APP_NAME= 'Simple Bittorrent CLI'
+class SimpleClient:
+    APP_NAME = 'Simple Bittorrent CLI'
     VERSION = '1.0.0'
+    TALKER_CHECKING = 40
+    HAVING_REQUEST_TIME = 10
 
 
 EVENT_LIST = [
