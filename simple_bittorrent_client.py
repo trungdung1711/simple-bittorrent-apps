@@ -1,16 +1,26 @@
 import threading
-import time
-
 import click
 import pprint
-
-from simple_peer.config import DEBUG
+import logging
+from simple_peer.config import DEBUG, INFO, DEMO
 from simple_peer.re_announcer import re_announcer
 from simple_peer.talker import talker
 from simple_peer.listener import listener
 from simple_peer.util import create_torrent, create_file, get_torrent_dic, get_file_length, \
     started_announce, is_download_completed, SimpleClient, stop_announce, leecher_init, seeder_init, \
     init_progress_bar
+
+
+logger = logging.getLogger(SimpleClient.APP_NAME)
+
+
+#configure logging
+if DEBUG:
+    logging.basicConfig(level=logging.DEBUG)
+if INFO:
+    logging.basicConfig(level=logging.INFO)
+if DEMO:
+    logging.basicConfig(level=logging.ERROR)
 
 
 @click.group()
@@ -30,7 +40,7 @@ def torrent(file, ip, port, piece_length, destination):
         click.echo(f'Creating torrent from file {file}')
         click.echo(f'Saving torrent to {destination}')
     except Exception as e:
-        click.echo(SimpleClient.APP_NAME + ': ' + str(e))
+        logger.error(str(e))
 
 
 @cli.command()
@@ -41,7 +51,7 @@ def meta(torrent):
         torrent_dic['info']['pieces'] = '***'
         pprint.pprint(torrent_dic)
     except Exception as e:
-        click.echo(SimpleClient.APP_NAME + ': ' + str(e))
+        logger.error(str(e))
 
 
 @cli.command()
@@ -61,7 +71,7 @@ def join(torrent, file, ip, port):
 
         interval, peers = started_announce(peer)
         peers_lock = threading.Lock()
-        if DEBUG:
+        if DEBUG or INFO:
             pprint.pprint(peers)
 
         # re_announcer
@@ -79,7 +89,7 @@ def join(torrent, file, ip, port):
         listener_thread.start()
 
         # progress bar
-        if not DEBUG:
+        if DEMO:
             init_progress_bar(peer)
 
 
@@ -96,7 +106,7 @@ def join(torrent, file, ip, port):
                 else:
                     click.echo('Seeding...')
     except Exception as e:
-        click.echo(SimpleClient.APP_NAME + ': ' + str(e))
+        logger.error(str(e))
 
 
 @cli.command()
@@ -114,7 +124,7 @@ def seed(torrent, file, ip, port):
 
         interval, peers = started_announce(peer)
         peers_lock = threading.Lock()
-        if DEBUG:
+        if DEBUG or INFO:
             pprint.pprint(peers)
 
 
@@ -141,7 +151,7 @@ def seed(torrent, file, ip, port):
                 else:
                     print('Seeding...')
     except Exception as e:
-        click.echo(SimpleClient.APP_NAME + ': ' + str(e))
+        logger.error(str(e))
 
 
 if __name__ == '__main__':
