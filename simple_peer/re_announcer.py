@@ -1,7 +1,10 @@
+import logging
 import time
-import click
 import requests
-from simple_peer.util import get_announce, SimpleClient
+from simple_peer.util import get_announce
+
+
+logger = logging.getLogger('re_announcer')
 
 
 def re_announce_announce(client_peer):
@@ -38,4 +41,4 @@ def re_announcer(interval, client_peer, peers, peers_lock):
                 peers.clear()
                 peers.extend(new_peers)
     except Exception as e:
-        click.echo(SimpleClient.APP_NAME + '-re_announcer: ' + str(e))
+        logger.error(str(e))

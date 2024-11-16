@@ -1,10 +1,15 @@
 import json
+import logging
 import socket
 import struct
 import threading
 
-from simple_peer.config import DEBUG
-from simple_peer.util import get_interest_piece_index, get_piece_length, SimpleClient
+from simple_peer.config import INFO
+from simple_peer.util import get_interest_piece_index, get_piece_length
+
+
+listener_logger = logging.getLogger('listener')
+handler_logger = logging.getLogger('handler')
 
 
 def listener(server_peer, peer_pieces_tracking, server_peer_lock):
@@ -17,15 +22,18 @@ def listener(server_peer, peer_pieces_tracking, server_peer_lock):
     :return: None
     """
     # todo: a central thread that accepts the connection from client peers
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((server_peer.peer_ip, server_peer.peer_port))
+    try:
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind((server_peer.peer_ip, server_peer.peer_port))
 
-    server_socket.listen(10)
+        server_socket.listen(10)
 
-    while True:
-        server_client_socket, addr = server_socket.accept()
-        handler_thread = threading.Thread(target=handler, args=(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock), daemon=True)
-        handler_thread.start()
+        while True:
+            server_client_socket, addr = server_socket.accept()
+            handler_thread = threading.Thread(target=handler, args=(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock), daemon=True)
+            handler_thread.start()
+    except Exception as e:
+        listener_logger.error(str(e))
 
 
 def handler(server_peer, server_client_socket, peer_pieces_tracking, server_peer_lock):
@@ -63,8 +71,8 @@ def handler(server_peer, server_client_socket, peer_pieces_tracking, server_peer
                 elif request_type == 'INTEREST':
                     handler_interest(server_peer, server_client_socket, request_message, server_peer_lock)
     except Exception as e:
-        if DEBUG:
-            print(SimpleClient.APP_NAME + '-handler: ' + str(e))
+        if INFO:
+            handler_logger.info(str(e))
     finally:
         server_client_socket.close()
 
@@ -95,8 +103,8 @@ def handler_interest(server_peer, server_client_socket, interest_request, server
         piece_data = f.read(get_piece_length(server_peer.torrent))
         server_client_socket.send(piece_data)
         client_ip, client_port = server_client_socket.getpeername()
-        if DEBUG:
-            print(f'Uploaded piece [{piece_index}] to [{client_ip}][{client_port}]')
+        if INFO:
+            handler_logger.info(f'Uploaded piece [{piece_index}] to [{client_ip}][{client_port}]')
     server_peer.update_peer_uploaded()
 
 

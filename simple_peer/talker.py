@@ -1,12 +1,15 @@
 import json
+import logging
 import socket
 import struct
 import threading
 import time
-
-from simple_peer.config import DEBUG
+from simple_peer.config import INFO
 from simple_peer.util import get_piece_number, get_piece_length, verify_piece, write_piece, is_download_completed, SimpleClient, \
     recv_exact_bytes, get_file_length
+
+
+logger = logging.getLogger("requester")
 
 
 def talker(client_peer, server_peers, server_peers_lock, peer_pieces_tracking, client_peer_lock, peer_pieces_tracking_lock):
@@ -90,8 +93,8 @@ def requester(client_peer, server_peer, peer_pieces_tracking, peer_pieces_tracki
                     server_peers.remove(server_peer_mem)
 
 
-        if DEBUG:
-            print(SimpleClient.APP_NAME + '-requester: ' + str(e))
+        if INFO:
+            logger.info(str(e))
     finally:
         client_socket.close()
 
@@ -136,9 +139,8 @@ def requester_having_accumulator(peer_client_socket):
         return parsed_json  # Return the parsed JSON object if successful
     except (UnicodeDecodeError, json.JSONDecodeError):
         # If decoding or JSON parsing fails, continue to receive data
-        if DEBUG:
-            print("Error parsing JSON, waiting for more data...")
-
+        if INFO:
+            logger.info('Error parsing JSON, waiting for more data...')
 
 def requester_having(client_socket):
     """
@@ -181,11 +183,11 @@ def requester_interest(peer_client_socket, client_peer, client_peer_lock, peer_p
             client_peer.update_peer_available()
             update_peer_pieces_tracking_available(peer_pieces_tracking, peer_pieces_tracking_lock, i)
             server_ip, server_port = peer_client_socket.getpeername()
-            if DEBUG:
-                print(f'Downloaded piece [{i}] from [{server_ip}][{server_port}]')
+            if INFO:
+                logger.info(f'Downloaded piece [{i}] from [{server_ip}][{server_port}]')
         else:
-            if DEBUG:
-                print(f'Piece [{i}] is wrong')
+            if INFO:
+                logger.info(f'Piece [{i}] is wrong')
             update_peer_pieces_tracking_unavailable(peer_pieces_tracking, peer_pieces_tracking_lock, i)
     except Exception as e:
         update_peer_pieces_tracking_unavailable(peer_pieces_tracking, peer_pieces_tracking_lock, i)
@@ -212,7 +214,6 @@ def requester_having_interests(client_peer, peer_client_socket, peer_pieces_trac
 def requester_done(peer_client_socket):
     done_message = 'DONE\n'
     peer_client_socket.send(done_message.encode('utf-8'))
-    # print('Sending DONE request')
     done_message_received = peer_client_socket.recv(1024).decode('utf-8')
     if done_message_received == 'DONE_OK':
         peer_client_socket.close()

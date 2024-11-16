@@ -10,4 +10,6 @@ config.read(config_py_path)
 
 # Get the MODE of the settings
 MODE = config.get('settings', 'mode')
-DEBUG = MODE == "DEBUG"
+INFO = MODE == 'INFO'
+DEBUG = MODE == 'DEBUG'
+DEMO = MODE == 'DEMO'
