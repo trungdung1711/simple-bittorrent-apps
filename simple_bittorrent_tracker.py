@@ -49,7 +49,7 @@ def announce():
 
 # Start the Flask server with threaded support
 def run():
-    simple_bittorrent_tracker.run(host='0.0.0.0', port=80, threaded=True)
+    simple_bittorrent_tracker.run(host='0.0.0.0', port=8080, threaded=True)
 
 
 # Run the Flask server in a new thread
