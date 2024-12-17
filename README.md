@@ -40,11 +40,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("announce")
 
 
-# DICTIONARY
-#   {
-#       'info_hash': [list of peers (object)],
-#       'info_hash': [list of peers (object)]
-#   }
 peers_db = {}
 peers_db_lock = threading.Lock()
 
